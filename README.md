@@ -103,21 +103,53 @@ Después de crear la app, guarda su URL en `PUBLIC_URL`:
 heroku config:set PUBLIC_URL=https://NOMBRE-DE-TU-APP.herokuapp.com
 ```
 
-## Conectar Telegram
+## Telegram
 
-> Nota: el endpoint `POST /telegram` es por ahora un stub que responde `{"ok": true}`; la lógica del bot
-> está pendiente.
+El bot usa un webhook y solo `httpx` (sin librerías de bot). `POST /telegram` verifica la cabecera
+`X-Telegram-Bot-Api-Secret-Token` (403 si no coincide con `TELEGRAM_SECRET`), ignora updates sin texto, pasa el
+mensaje al router con `thread_id = chat_id` y responde con `sendMessage`. A Telegram siempre le contesta 200
+enseguida; la respuesta al usuario se envía después.
 
-1. En Telegram habla con [@BotFather](https://t.me/BotFather), ejecuta `/newbot` y copia el token.
-2. Guárdalo en Heroku (y en tu `.env` local):
+Antes de empezar: en Telegram habla con [@BotFather](https://t.me/BotFather), ejecuta `/newbot`, copia el token a
+`TELEGRAM_TOKEN` en `.env` y elige un `TELEGRAM_SECRET` largo (solo letras, números, `_` y `-`).
+
+1. Variables en Heroku:
    ```
-   heroku config:set TELEGRAM_TOKEN=el_token_de_botfather
+   heroku config:set TELEGRAM_TOKEN=el_token_de_botfather TELEGRAM_SECRET=tu_secreto
    ```
-3. Registra el webhook (necesita la URL https pública y el mismo secreto de `TELEGRAM_SECRET`):
+2. Commit y push a GitHub y a Heroku:
    ```
-   curl "https://api.telegram.org/botTU_TOKEN/setWebhook" -d "url=https://NOMBRE-DE-TU-APP.herokuapp.com/telegram" -d "secret_token=TU_TELEGRAM_SECRET"
+   git add .
+   git commit -m "telegram"
+   git push origin main
+   git push heroku main
    ```
-4. Verifica:
+3. Registra el webhook y confirma (con `PUBLIC_URL=https://NOMBRE-DE-TU-APP.herokuapp.com` en tu `.env`):
    ```
-   curl "https://api.telegram.org/botTU_TOKEN/getWebhookInfo"
+   python scripts/set_webhook.py
+   python scripts/webhook_info.py
    ```
+   `webhook_info.py` debe mostrar `url` terminada en `/telegram`, `updates pendientes: 0` y `último error: ninguno`.
+4. Escríbele al bot estos 6 mensajes y mira la ruta de cada uno en los logs
+   (`heroku logs --tail`, busca las líneas `telegram chat_id=... ruta=...`):
+   - "¿tienen la polera azul en talla M?" → preventa
+   - "mi pedido 4521 llegó roto" → postventa
+   - "hola" → generica
+   - "¿cuánto cuesta el envío a Valparaíso?" → preventa
+   - "quiero devolver unas zapatillas" → postventa
+   - "¿qué hora es en Tokio?" → generica
+5. Si no responde, revisa:
+   - El webhook apunta a `https://.../telegram` (https y la ruta `/telegram`): mira `url` en `webhook_info.py`.
+   - `TELEGRAM_SECRET` es idéntico en Heroku y en el `.env` con el que corriste `set_webhook.py`.
+   - `TELEGRAM_TOKEN` es el correcto (en Heroku, con `heroku config`).
+   - `último error` de `webhook_info.py` (un 403 indica secreto distinto) y `heroku logs --tail`.
+
+### Probar antes de desplegar (opcional)
+
+```
+uvicorn api.app:app --port 8000
+cloudflared tunnel --url http://localhost:8000
+```
+
+Pon la URL https que imprime cloudflared como `PUBLIC_URL` en `.env` y corre `python scripts/set_webhook.py`.
+Al desplegar en Heroku, vuelve a correrlo con la URL de Heroku.
